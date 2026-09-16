@@ -153,6 +153,7 @@
     if (parts.length === 0) return { name: "liste" };
     if (parts[0] === "karte") return { name: "karte" };
     if (parts[0] === "neu") return { name: "neu" };
+    if (parts[0] === "tour" && parts[1] && parts[2] === "bearbeiten") return { name: "bearbeiten", id: parts[1] };
     if (parts[0] === "tour" && parts[1]) return { name: "tour", id: parts[1] };
     return { name: "liste" };
   }
@@ -172,7 +173,8 @@
     if (route.name === "liste") root.innerHTML = renderListe();
     else if (route.name === "karte") root.innerHTML = renderKarte();
     else if (route.name === "tour") root.innerHTML = renderDetail(route.id);
-    else if (route.name === "neu") root.innerHTML = renderNeu();
+    else if (route.name === "neu") root.innerHTML = renderNeu(null);
+    else if (route.name === "bearbeiten") root.innerHTML = renderNeu(getTour(route.id));
     else root.innerHTML = renderListe();
 
     wireUp(route);
@@ -323,6 +325,7 @@
       (t.zusatz ? '<div><h3>Gut zu wissen</h3><p>' + escapeHtml(t.zusatz) + "</p></div>" : "") +
       (photos ? '<div><h3>Fotos</h3><div class="thumbs">' + photos + "</div></div>" : "") +
       '<div class="detail-actions">' +
+      '<a href="#/tour/' + t.id + '/bearbeiten" class="btn-edit">Bearbeiten</a>' +
       '<button type="button" class="btn-danger" data-action="delete" data-id="' + t.id + '">Tour löschen</button>' +
       "</div>" +
       "</div>" +
@@ -344,21 +347,26 @@
     );
   }
 
-  function renderNeu() {
-    var starsBlock = function (name) {
+  function renderNeu(editTour) {
+    var activeCategory = editTour ? editTour.category : CATEGORIES[0];
+
+    var starsBlock = function (name, current) {
       var stars = "";
       for (var i = 1; i <= 5; i++) {
         stars += '<button type="button" class="starbtn" data-star="' + name + '" data-value="' + i +
-          '" aria-label="' + i + ' Sterne">' + starIcon(false, 22) + "</button>";
+          '" aria-label="' + i + ' Sterne">' + starIcon(i <= Math.round(current || 0), 22) + "</button>";
       }
       return stars;
     };
 
+    var backHref = editTour ? "#/tour/" + editTour.id : "#/liste";
+    var backLabel = editTour ? "Abbrechen und zurück zur Tour" : "Abbrechen und zurück zur Liste";
+
     return (
       '<div class="screen">' +
       '<div class="form-header">' +
-      '<a href="#/liste" class="form-back" aria-label="Abbrechen und zurück zur Liste">' + icon("back", 16, "#2B2B26") + "</a>" +
-      '<div class="form-title">Neue Tour</div>' +
+      '<a href="' + backHref + '" class="form-back" aria-label="' + backLabel + '">' + icon("back", 16, "#2B2B26") + "</a>" +
+      '<div class="form-title">' + (editTour ? "Tour bearbeiten" : "Neue Tour") + "</div>" +
       '<button type="button" class="form-save" data-action="save">Speichern</button>' +
       "</div>" +
       '<div class="form-body">' +
@@ -377,39 +385,39 @@
       "</div>" +
 
       '<div class="field"><label for="titel">Titel der Tour</label>' +
-      '<input id="titel" type="text" placeholder="z. B. Zafernhorn"></div>' +
+      '<input id="titel" type="text" placeholder="z. B. Zafernhorn" value="' + escapeHtml(editTour ? editTour.title : "") + '"></div>' +
 
       '<div class="field"><label>Kategorie</label><div class="chips" style="padding:0;" id="catChips">' +
-      CATEGORIES.map(function (c, i) {
-        return '<button type="button" class="chip' + (i === 0 ? " active" : "") + '" data-cat="' +
-          escapeHtml(c) + '" aria-pressed="' + (i === 0) + '">' + escapeHtml(c) + "</button>";
+      CATEGORIES.map(function (c) {
+        return '<button type="button" class="chip' + (c === activeCategory ? " active" : "") + '" data-cat="' +
+          escapeHtml(c) + '" aria-pressed="' + (c === activeCategory) + '">' + escapeHtml(c) + "</button>";
       }).join("") +
       "</div></div>" +
 
       '<div class="field"><label for="datum">Datum</label>' +
-      '<input id="datum" type="text" placeholder="12.07.2026"></div>' +
+      '<input id="datum" type="text" placeholder="12.07.2026" value="' + escapeHtml(editTour && editTour.date !== "–" ? editTour.date : "") + '"></div>' +
 
       '<div class="field-row">' +
-      '<div class="field"><label for="hm">Höhenmeter</label><input id="hm" type="text" placeholder="850 m"></div>' +
-      '<div class="field"><label for="km">Distanz</label><input id="km" type="text" placeholder="12,4 km"></div>' +
-      '<div class="field"><label for="dauer">Dauer</label><input id="dauer" type="text" placeholder="4:30 h"></div>' +
+      '<div class="field"><label for="hm">Höhenmeter</label><input id="hm" type="text" placeholder="850 m" value="' + escapeHtml(editTour ? editTour.hm : "") + '"></div>' +
+      '<div class="field"><label for="km">Distanz</label><input id="km" type="text" placeholder="12,4 km" value="' + escapeHtml(editTour ? editTour.km : "") + '"></div>' +
+      '<div class="field"><label for="dauer">Dauer</label><input id="dauer" type="text" placeholder="4:30 h" value="' + escapeHtml(editTour ? editTour.dauer : "") + '"></div>' +
       "</div>" +
 
-      '<div class="field"><label>Bewertung – Gesamttour</label><div class="stars-edit" data-group="ratingGesamt">' + starsBlock("ratingGesamt") + "</div></div>" +
-      '<div class="field"><label>Bewertung – Aussicht</label><div class="stars-edit" data-group="ratingAussicht">' + starsBlock("ratingAussicht") + "</div></div>" +
-      '<div class="field"><label>Bewertung – Natur</label><div class="stars-edit" data-group="ratingNatur">' + starsBlock("ratingNatur") + "</div></div>" +
+      '<div class="field"><label>Bewertung – Gesamttour</label><div class="stars-edit" data-group="ratingGesamt">' + starsBlock("ratingGesamt", editTour && editTour.ratingGesamt) + "</div></div>" +
+      '<div class="field"><label>Bewertung – Aussicht</label><div class="stars-edit" data-group="ratingAussicht">' + starsBlock("ratingAussicht", editTour && editTour.ratingAussicht) + "</div></div>" +
+      '<div class="field"><label>Bewertung – Natur</label><div class="stars-edit" data-group="ratingNatur">' + starsBlock("ratingNatur", editTour && editTour.ratingNatur) + "</div></div>" +
 
       '<div class="field"><label for="besch">Beschreibung</label>' +
-      '<textarea id="besch" placeholder="Wie war die Tour? Was war besonders?"></textarea></div>' +
+      '<textarea id="besch" placeholder="Wie war die Tour? Was war besonders?">' + escapeHtml(editTour ? editTour.beschreibung : "") + "</textarea></div>" +
 
       '<div class="field"><label for="weg">Wegbeschreibung (kurz)</label>' +
-      '<textarea id="weg" placeholder="Start, Route, Ziel …"></textarea></div>' +
+      '<textarea id="weg" placeholder="Start, Route, Ziel …">' + escapeHtml(editTour ? editTour.weg : "") + "</textarea></div>" +
 
       '<div class="field"><label for="zusatz">Zusatzinfos</label>' +
-      '<textarea id="zusatz" placeholder="z. B. gut zum Pilze sammeln, Einkehrmöglichkeit …"></textarea></div>' +
+      '<textarea id="zusatz" placeholder="z. B. gut zum Pilze sammeln, Einkehrmöglichkeit …">' + escapeHtml(editTour ? editTour.zusatz : "") + "</textarea></div>" +
 
       '<div class="error-text" id="formError"></div>' +
-      '<button type="button" class="btn-primary" data-action="save">Tour speichern</button>' +
+      '<button type="button" class="btn-primary" data-action="save">' + (editTour ? "Änderungen speichern" : "Tour speichern") + "</button>" +
       "</div>" +
       "</div>"
     );
@@ -449,18 +457,30 @@
     }
 
     if (route.name === "neu") {
-      wireNeuForm(root);
+      wireNeuForm(root, null);
+    }
+
+    if (route.name === "bearbeiten") {
+      wireNeuForm(root, getTour(route.id));
     }
   }
 
-  function wireNeuForm(root) {
-    var newCover = null;
-    var newPhotos = [];
-    var ratings = { ratingGesamt: 0, ratingAussicht: 0, ratingNatur: 0 };
-    var category = CATEGORIES[0];
+  function wireNeuForm(root, editTour) {
+    var newCover = editTour ? editTour.cover : null;
+    var newPhotos = editTour ? (editTour.photos || []).slice() : [];
+    var ratings = {
+      ratingGesamt: editTour ? editTour.ratingGesamt : 0,
+      ratingAussicht: editTour ? editTour.ratingAussicht : 0,
+      ratingNatur: editTour ? editTour.ratingNatur : 0
+    };
+    var category = editTour ? editTour.category : CATEGORIES[0];
 
     var coverBox = root.querySelector("#coverBox");
     var coverInput = root.querySelector("#coverInput");
+    if (newCover) {
+      coverBox.classList.add("has-image");
+      coverBox.style.backgroundImage = "url(" + newCover + ")";
+    }
     coverBox.addEventListener("click", function () { coverInput.click(); });
     coverInput.addEventListener("change", function () {
       var file = coverInput.files[0];
@@ -504,6 +524,7 @@
         });
       });
     }
+    if (newPhotos.length) renderPhotoRow();
 
     // category chips
     var catChips = root.querySelector("#catChips");
@@ -541,11 +562,9 @@
       }
       errorEl.textContent = "";
 
-      var tour = {
-        id: uid(),
+      var fields = {
         title: titel,
         category: category,
-        region: "Vorarlberg",
         date: root.querySelector("#datum").value.trim() || "–",
         hm: root.querySelector("#hm").value.trim(),
         km: root.querySelector("#km").value.trim(),
@@ -557,13 +576,23 @@
         weg: root.querySelector("#weg").value.trim(),
         zusatz: root.querySelector("#zusatz").value.trim(),
         cover: newCover,
-        photos: newPhotos.slice(),
-        mapPos: { x: 15 + Math.random() * 70, y: 15 + Math.random() * 70 }
+        photos: newPhotos.slice()
       };
 
-      state.tours.unshift(tour);
-      saveTours(state.tours);
-      navigate("#/tour/" + tour.id);
+      if (editTour) {
+        Object.assign(editTour, fields);
+        saveTours(state.tours);
+        navigate("#/tour/" + editTour.id);
+      } else {
+        var tour = Object.assign({
+          id: uid(),
+          region: "Vorarlberg",
+          mapPos: { x: 15 + Math.random() * 70, y: 15 + Math.random() * 70 }
+        }, fields);
+        state.tours.unshift(tour);
+        saveTours(state.tours);
+        navigate("#/tour/" + tour.id);
+      }
     }
 
     root.querySelectorAll('[data-action="save"]').forEach(function (btn) {

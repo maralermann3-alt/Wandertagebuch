@@ -331,16 +331,18 @@ img { display: block; }
   background-position: center;
 }
 .detail-actions { display: flex; gap: 10px; }
-.btn-danger {
+.btn-danger, .btn-edit {
   flex: 1;
   text-align: center;
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  color: var(--orange-dark);
   font-weight: 700;
   font-size: 14px;
+  display: block;
 }
+.btn-danger { color: var(--orange-dark); }
+.btn-edit { color: var(--white); background: var(--green); border-color: var(--green); }
 
 /* ---------- form ---------- */
 
