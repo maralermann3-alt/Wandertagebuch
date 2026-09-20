@@ -60,6 +60,85 @@
     });
   }
 
+  // ---------------- image store (IndexedDB) ----------------
+
+  var imgCache = {};
+  var idbPromise = null;
+
+  function idb() {
+    if (!idbPromise) {
+      idbPromise = new Promise(function (resolve, reject) {
+        var req = indexedDB.open("wandertagebuch-img", 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore("images"); };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+    return idbPromise;
+  }
+
+  function idbTx(mode, fn) {
+    return idb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction("images", mode);
+        var result = fn(tx.objectStore("images"));
+        tx.oncomplete = function () { resolve(result && result.result); };
+        tx.onerror = tx.onabort = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function imgSrc(ref) {
+    if (!ref) return "";
+    return ref.indexOf("idb:") === 0 ? (imgCache[ref] || "") : ref;
+  }
+
+  function storeImage(dataUrl) {
+    var ref = "idb:" + uid();
+    imgCache[ref] = dataUrl;
+    return idbTx("readwrite", function (s) { return s.put(dataUrl, ref); }).then(function () { return ref; });
+  }
+
+  function deleteImages(refs) {
+    refs.forEach(function (r) { delete imgCache[r]; });
+    idbTx("readwrite", function (s) { refs.forEach(function (r) { s.delete(r); }); }).catch(function () {});
+  }
+
+  function tourRefs(t) {
+    return [t.cover].concat(t.photos || []).filter(function (r) { return r && r.indexOf("idb:") === 0; });
+  }
+
+  function initImages() {
+    return idb().then(function () {
+      return idbTx("readonly", function (s) {
+        var keysReq = s.getAllKeys();
+        var valsReq = s.getAll();
+        return { get result() { return { keys: keysReq.result, vals: valsReq.result }; } };
+      });
+    }).then(function (all) {
+      all.keys.forEach(function (k, i) { imgCache[k] = all.vals[i]; });
+      return migrateLegacyImages();
+    }).catch(function () {});
+  }
+
+  function migrateLegacyImages() {
+    var jobs = [];
+    var changed = false;
+    state.tours.forEach(function (t) {
+      if (t.cover && t.cover.indexOf("data:") === 0) {
+        jobs.push(storeImage(t.cover).then(function (ref) { t.cover = ref; changed = true; }));
+      }
+      (t.photos || []).forEach(function (p, i) {
+        if (p.indexOf("data:") === 0) {
+          jobs.push(storeImage(p).then(function (ref) { t.photos[i] = ref; changed = true; }));
+        }
+      });
+    });
+    return Promise.all(jobs).then(function () { if (changed) saveTours(state.tours); });
+  }
+
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+
   // ---------------- data layer ----------------
 
   function seedData() {
@@ -212,7 +291,6 @@
   }
 
   window.addEventListener("hashchange", render);
-  window.addEventListener("DOMContentLoaded", render);
 
   // ---------------- render ----------------
 
@@ -265,8 +343,8 @@
   function renderListe() {
     var tours = filteredTours();
     var cards = tours.map(function (t) {
-      var bg = t.cover
-        ? 'background-image: url(' + t.cover + '); background-size: cover; background-position: center;'
+      var bg = imgSrc(t.cover)
+        ? 'background-image: url(' + imgSrc(t.cover) + '); background-size: cover; background-position: center;'
         : "background: " + (CATEGORY_GRADIENT[t.category] || CATEGORY_GRADIENT["Wanderung"]) + ";";
       var ratingStar = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#C1622D" stroke="#C1622D" stroke-width="1" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
       return (
@@ -352,12 +430,12 @@
         '<div class="list-body"><a href="#/liste" class="btn-primary" style="text-align:center;">Zurück zur Liste</a></div></div>'
       );
     }
-    var heroBg = t.cover
-      ? "background-image: url(" + t.cover + "); background-size: cover; background-position: center;"
+    var heroBg = imgSrc(t.cover)
+      ? "background-image: url(" + imgSrc(t.cover) + "); background-size: cover; background-position: center;"
       : "background: " + (CATEGORY_GRADIENT[t.category] || CATEGORY_GRADIENT["Wanderung"]) + ";";
 
     var photos = (t.photos || []).map(function (p) {
-      return '<div class="thumb" style="background-image:url(' + p + ')"></div>';
+      return '<div class="thumb" style="background-image:url(' + imgSrc(p) + ')"></div>';
     }).join("");
 
     return (
@@ -579,12 +657,12 @@
       var img = new Image();
       img.onerror = function () { alert("Dieses Bildformat wird nicht unterstützt. Bitte JPEG oder PNG verwenden."); };
       img.onload = function () {
-        var scale = Math.min(1, 900 / Math.max(img.width, img.height));
+        var scale = Math.min(1, 1400 / Math.max(img.width, img.height));
         var canvas = document.createElement("canvas");
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        cb(canvas.toDataURL("image/jpeg", 0.72));
+        cb(canvas.toDataURL("image/jpeg", 0.8));
       };
       img.src = reader.result;
     };
@@ -608,6 +686,7 @@
         delBtn.addEventListener("click", function () {
           if (confirm("Diese Tour wirklich löschen?")) {
             var id = delBtn.getAttribute("data-id");
+            deleteImages(tourRefs(getTour(id) || {}));
             state.tours = state.tours.filter(function (t) { return t.id !== id; });
             saveTours(state.tours);
             navigate("#/liste");
@@ -698,16 +777,18 @@
     var coverInput = root.querySelector("#coverInput");
     if (newCover) {
       coverBox.classList.add("has-image");
-      coverBox.style.backgroundImage = "url(" + newCover + ")";
+      coverBox.style.backgroundImage = "url(" + imgSrc(newCover) + ")";
     }
     coverBox.addEventListener("click", function () { coverInput.click(); });
     coverInput.addEventListener("change", function () {
       var file = coverInput.files[0];
       if (!file) return;
       readFileAsDataUrl(file, function (dataUrl) {
-        newCover = dataUrl;
-        coverBox.classList.add("has-image");
-        coverBox.style.backgroundImage = "url(" + dataUrl + ")";
+        storeImage(dataUrl).then(function (ref) {
+          newCover = ref;
+          coverBox.classList.add("has-image");
+          coverBox.style.backgroundImage = "url(" + dataUrl + ")";
+        }).catch(function () { alert("Bild konnte nicht gespeichert werden (Browser-Speicher nicht verfügbar)."); });
       });
     });
 
@@ -719,15 +800,17 @@
       var file = photoInput.files[0];
       if (!file) return;
       readFileAsDataUrl(file, function (dataUrl) {
-        newPhotos.push(dataUrl);
-        renderPhotoRow();
+        storeImage(dataUrl).then(function (ref) {
+          newPhotos.push(ref);
+          renderPhotoRow();
+        }).catch(function () { alert("Bild konnte nicht gespeichert werden (Browser-Speicher nicht verfügbar)."); });
       });
       photoInput.value = "";
     });
 
     function renderPhotoRow() {
       var extra = newPhotos.map(function (p, i) {
-        return '<div class="thumb-small" style="background-image:url(' + p + ')" data-idx="' + i +
+        return '<div class="thumb-small" style="background-image:url(' + imgSrc(p) + ')" data-idx="' + i +
           '"><span class="thumb-remove" data-remove="' + i + '">×</span></div>';
       }).join("");
       photoRow.innerHTML =
@@ -798,7 +881,7 @@
         photos: newPhotos.slice()
       };
 
-      var fullMsg = "Speichern fehlgeschlagen: Browser-Speicher voll. Bitte weniger oder kleinere Bilder verwenden.";
+      var fullMsg = "Speichern fehlgeschlagen: Browser-Speicher voll.";
 
       if (editTour) {
         var backup = Object.assign({}, editTour);
@@ -808,6 +891,8 @@
           errorEl.textContent = fullMsg;
           return;
         }
+        var kept = tourRefs(editTour);
+        deleteImages(tourRefs(backup).filter(function (r) { return kept.indexOf(r) < 0; }));
         navigate("#/tour/" + editTour.id);
       } else {
         var tour = Object.assign({
@@ -830,5 +915,12 @@
     });
   }
 
-  render();
+  var started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    render();
+  }
+  initImages().then(start);
+  setTimeout(start, 1500);
 })();
