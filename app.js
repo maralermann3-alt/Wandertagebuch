@@ -44,6 +44,7 @@
       elevation: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
       distance: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 3"/><circle cx="3" cy="12" r="1.6" fill="' + color + '" stroke="none"/><circle cx="21" cy="12" r="1.6" fill="' + color + '" stroke="none"/></svg>',
       duration: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+      peak: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6-11 4 7 3-4 5 8z"/></svg>',
       pin: '<svg viewBox="0 0 24 24" fill="' + color + '" stroke="#FFFFFF" stroke-width="1.2" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>'
     };
     return icons[name] || "";
@@ -123,15 +124,60 @@
   function saveTours(tours) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tours));
+      return true;
     } catch (e) {
-      alert("Speichern fehlgeschlagen (Speicher evtl. voll durch Fotos).");
+      return false;
+    }
+  }
+
+  var GIPFEL_KEY = "wandertagebuch.gipfel.v1";
+
+  function loadGipfel() {
+    try {
+      var raw = localStorage.getItem(GIPFEL_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveGipfel() {
+    try {
+      localStorage.setItem(GIPFEL_KEY, JSON.stringify(state.gipfel));
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
   var state = {
     tours: loadTours(),
+    gipfel: loadGipfel(),
     filter: "Alle"
   };
+
+  function getGipfel(id) {
+    for (var i = 0; i < state.gipfel.length; i++) {
+      if (state.gipfel[i].id === id) return state.gipfel[i];
+    }
+    return null;
+  }
+
+  function todayIso() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + m + "-" + day;
+  }
+
+  function fmtDate(iso) {
+    var p = String(iso).split("-");
+    return p.length === 3 ? p[2] + "." + p[1] + "." + p[0] : iso;
+  }
+
+  function lastVisit(g) {
+    return g.visits.slice().sort().pop() || "";
+  }
 
   function getTour(id) {
     for (var i = 0; i < state.tours.length; i++) {
@@ -153,6 +199,9 @@
     if (parts.length === 0) return { name: "liste" };
     if (parts[0] === "karte") return { name: "karte" };
     if (parts[0] === "neu") return { name: "neu" };
+    if (parts[0] === "gipfel" && parts[1] === "neu") return { name: "gipfelneu" };
+    if (parts[0] === "gipfel" && parts[1]) return { name: "gipfeldetail", id: parts[1] };
+    if (parts[0] === "gipfel") return { name: "gipfel" };
     if (parts[0] === "tour" && parts[1] && parts[2] === "bearbeiten") return { name: "bearbeiten", id: parts[1] };
     if (parts[0] === "tour" && parts[1]) return { name: "tour", id: parts[1] };
     return { name: "liste" };
@@ -175,6 +224,9 @@
     else if (route.name === "tour") root.innerHTML = renderDetail(route.id);
     else if (route.name === "neu") root.innerHTML = renderNeu(null);
     else if (route.name === "bearbeiten") root.innerHTML = renderNeu(getTour(route.id));
+    else if (route.name === "gipfel") root.innerHTML = renderGipfel();
+    else if (route.name === "gipfelneu") root.innerHTML = renderGipfelNeu();
+    else if (route.name === "gipfeldetail") root.innerHTML = renderGipfelDetail(route.id);
     else root.innerHTML = renderListe();
 
     wireUp(route);
@@ -202,6 +254,10 @@
       (active === "karte" ? ' aria-current="page"' : "") + ">" +
       icon("map", 20, active === "karte" ? "#3F5D45" : "#57574C") +
       "Karte</a>" +
+      '<a href="#/gipfel" class="navbtn' + (active === "gipfel" ? " active" : "") + '"' +
+      (active === "gipfel" ? ' aria-current="page"' : "") + ">" +
+      icon("peak", 20, active === "gipfel" ? "#3F5D45" : "#57574C") +
+      "Gipfel</a>" +
       "</div>"
     );
   }
@@ -219,6 +275,11 @@
         '<div class="card-top">' +
         '<div class="card-title">' + escapeHtml(t.title) + "</div>" +
         '<div class="rating-pill">' + ratingStar + " " + fmtRating(t.ratingGesamt) + "</div>" +
+        "</div>" +
+        '<div class="card-bottom">' +
+        (t.hm ? '<span class="card-stat">' + icon("elevation", 15, "#FFFFFF") + escapeHtml(t.hm) + "</span>" : "") +
+        (t.dauer ? '<span class="card-stat">' + icon("duration", 15, "#FFFFFF") + escapeHtml(t.dauer) + "</span>" : "") +
+        (t.km ? '<span class="card-stat">' + icon("distance", 15, "#FFFFFF") + escapeHtml(t.km) + "</span>" : "") +
         "</div></a>"
       );
     });
@@ -347,6 +408,92 @@
     );
   }
 
+  function renderGipfel() {
+    var list = state.gipfel.slice().sort(function (a, b) {
+      return lastVisit(b).localeCompare(lastVisit(a));
+    });
+    var total = state.gipfel.reduce(function (s, g) { return s + g.visits.length; }, 0);
+
+    var rows = list.map(function (g) {
+      return (
+        '<a class="gipfel-row" href="#/gipfel/' + g.id + '">' +
+        '<div><div class="gipfel-name">' + escapeHtml(g.name) + "</div>" +
+        '<div class="gipfel-sub">Zuletzt: ' + fmtDate(lastVisit(g)) + "</div></div>" +
+        '<div class="gipfel-count">' + g.visits.length + "×</div></a>"
+      );
+    }).join("");
+
+    var body = rows || '<div class="empty-state">Noch keine Gipfel eingetragen.<br>Tippe auf + für deinen ersten Eintrag.</div>';
+
+    return (
+      '<div class="screen">' +
+      '<div class="header"><div class="header-title">Gipfeltagebuch</div>' +
+      '<div class="header-sub">' + state.gipfel.length + " Gipfel · " + total + " Besteigungen</div></div>" +
+      '<div class="list-body" style="padding-top:16px;">' + body + "</div>" +
+      '<a href="#/gipfel/neu" class="fab" aria-label="Gipfel eintragen">' + icon("plus", 22, "#FFFFFF") + "</a>" +
+      navbarHtml("gipfel") +
+      "</div>"
+    );
+  }
+
+  function renderGipfelNeu() {
+    var options = state.gipfel.map(function (g) {
+      return '<option value="' + escapeHtml(g.name) + '"></option>';
+    }).join("");
+
+    return (
+      '<div class="screen">' +
+      '<div class="form-header">' +
+      '<a href="#/gipfel" class="form-back" aria-label="Abbrechen">' + icon("back", 16, "#2B2B26") + "</a>" +
+      '<div class="form-title">Gipfel eintragen</div>' +
+      '<button type="button" class="form-save" data-action="save-gipfel">Speichern</button>' +
+      "</div>" +
+      '<div class="form-body">' +
+      '<div class="field"><label for="gname">Name des Gipfels</label>' +
+      '<input id="gname" type="text" list="gipfelListe" placeholder="z. B. Schesaplana" autocomplete="off">' +
+      '<datalist id="gipfelListe">' + options + "</datalist></div>" +
+      '<div class="field"><label for="gdatum">Datum der Besteigung</label>' +
+      '<input id="gdatum" type="date" value="' + todayIso() + '"></div>' +
+      '<div class="error-text" id="formError"></div>' +
+      '<button type="button" class="btn-primary" data-action="save-gipfel">Eintragen</button>' +
+      "</div></div>"
+    );
+  }
+
+  function renderGipfelDetail(id) {
+    var g = getGipfel(id);
+    if (!g) {
+      return (
+        '<div class="screen"><div class="header"><div class="header-title">Nicht gefunden</div></div>' +
+        '<div class="list-body"><a href="#/gipfel" class="btn-primary">Zurück zum Gipfeltagebuch</a></div></div>'
+      );
+    }
+    var visits = g.visits.slice().sort().reverse().map(function (d) {
+      return (
+        '<div class="visit-row"><span>' + fmtDate(d) + "</span>" +
+        '<button type="button" class="visit-del" data-action="del-visit" data-date="' + d +
+        '" aria-label="Besteigung vom ' + fmtDate(d) + ' löschen">×</button></div>'
+      );
+    }).join("");
+
+    return (
+      '<div class="screen">' +
+      '<div class="form-header">' +
+      '<a href="#/gipfel" class="form-back" aria-label="Zurück">' + icon("back", 16, "#2B2B26") + "</a>" +
+      '<div class="form-title">' + escapeHtml(g.name) + "</div>" +
+      '<span style="width:44px;"></span>' +
+      "</div>" +
+      '<div class="form-body">' +
+      '<div class="gipfel-big">' + g.visits.length + '<span>× bestiegen</span></div>' +
+      '<div class="field"><label for="gdatum">Weitere Besteigung hinzufügen</label>' +
+      '<div class="add-visit"><input id="gdatum" type="date" value="' + todayIso() + '">' +
+      '<button type="button" class="btn-edit" data-action="add-visit" style="flex:none;padding:10px 18px;">Hinzufügen</button></div></div>' +
+      '<div><h3 class="visit-h">Alle Besteigungen</h3>' + visits + "</div>" +
+      '<button type="button" class="btn-danger" data-action="del-gipfel" style="flex:none;">Gipfel löschen</button>' +
+      "</div></div>"
+    );
+  }
+
   function renderNeu(editTour) {
     var activeCategory = editTour ? editTour.category : CATEGORIES[0];
 
@@ -427,7 +574,20 @@
 
   function readFileAsDataUrl(file, cb) {
     var reader = new FileReader();
-    reader.onload = function () { cb(reader.result); };
+    reader.onerror = function () { alert("Das Bild konnte nicht gelesen werden."); };
+    reader.onload = function () {
+      var img = new Image();
+      img.onerror = function () { alert("Dieses Bildformat wird nicht unterstützt. Bitte JPEG oder PNG verwenden."); };
+      img.onload = function () {
+        var scale = Math.min(1, 900 / Math.max(img.width, img.height));
+        var canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        cb(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = reader.result;
+    };
     reader.readAsDataURL(file);
   }
 
@@ -462,6 +622,65 @@
 
     if (route.name === "bearbeiten") {
       wireNeuForm(root, getTour(route.id));
+    }
+
+    if (route.name === "gipfelneu") {
+      root.querySelectorAll('[data-action="save-gipfel"]').forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var name = root.querySelector("#gname").value.trim();
+          var date = root.querySelector("#gdatum").value;
+          var errorEl = root.querySelector("#formError");
+          if (!name || !date) {
+            errorEl.textContent = "Bitte Gipfelname und Datum angeben.";
+            return;
+          }
+          var g = null;
+          state.gipfel.forEach(function (x) {
+            if (x.name.toLowerCase() === name.toLowerCase()) g = x;
+          });
+          if (!g) {
+            g = { id: uid(), name: name, visits: [] };
+            state.gipfel.push(g);
+          }
+          g.visits.push(date);
+          saveGipfel();
+          navigate("#/gipfel/" + g.id);
+        });
+      });
+    }
+
+    if (route.name === "gipfeldetail") {
+      var g = getGipfel(route.id);
+      if (!g) return;
+      root.querySelector('[data-action="add-visit"]').addEventListener("click", function () {
+        var date = root.querySelector("#gdatum").value;
+        if (!date) return;
+        g.visits.push(date);
+        saveGipfel();
+        render();
+      });
+      root.querySelectorAll('[data-action="del-visit"]').forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var d = btn.getAttribute("data-date");
+          var idx = g.visits.indexOf(d);
+          if (idx > -1) g.visits.splice(idx, 1);
+          if (g.visits.length === 0) {
+            state.gipfel = state.gipfel.filter(function (x) { return x.id !== g.id; });
+            saveGipfel();
+            navigate("#/gipfel");
+          } else {
+            saveGipfel();
+            render();
+          }
+        });
+      });
+      root.querySelector('[data-action="del-gipfel"]').addEventListener("click", function () {
+        if (confirm("Diesen Gipfel mit allen Besteigungen löschen?")) {
+          state.gipfel = state.gipfel.filter(function (x) { return x.id !== g.id; });
+          saveGipfel();
+          navigate("#/gipfel");
+        }
+      });
     }
   }
 
@@ -579,9 +798,16 @@
         photos: newPhotos.slice()
       };
 
+      var fullMsg = "Speichern fehlgeschlagen: Browser-Speicher voll. Bitte weniger oder kleinere Bilder verwenden.";
+
       if (editTour) {
+        var backup = Object.assign({}, editTour);
         Object.assign(editTour, fields);
-        saveTours(state.tours);
+        if (!saveTours(state.tours)) {
+          Object.assign(editTour, backup);
+          errorEl.textContent = fullMsg;
+          return;
+        }
         navigate("#/tour/" + editTour.id);
       } else {
         var tour = Object.assign({
@@ -590,7 +816,11 @@
           mapPos: { x: 15 + Math.random() * 70, y: 15 + Math.random() * 70 }
         }, fields);
         state.tours.unshift(tour);
-        saveTours(state.tours);
+        if (!saveTours(state.tours)) {
+          state.tours.shift();
+          errorEl.textContent = fullMsg;
+          return;
+        }
         navigate("#/tour/" + tour.id);
       }
     }
