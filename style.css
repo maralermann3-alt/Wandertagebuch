@@ -554,3 +554,39 @@ img { display: block; }
   font-size: 15px;
 }
 .visit-del { width: 44px; height: 44px; text-align: center; line-height: 44px; font-size: 22px; color: var(--muted); }
+
+/* ---------- image swipe ---------- */
+
+.card-slides {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.card-slides::-webkit-scrollbar { display: none; }
+.slide {
+  flex: none;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  background-size: cover;
+  background-position: center;
+}
+.card-top, .card-bottom { pointer-events: none; }
+.dots {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 40px;
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  pointer-events: none;
+}
+.detail-hero .dots { bottom: 30px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.5); }
+.dot.active { background: #FFFFFF; }
+.detail-back { z-index: 2; }

@@ -88,9 +88,42 @@
     });
   }
 
+  var blobUrls = {};
+
+  function dataUrlToBlobUrl(dataUrl) {
+    if (dataUrl.indexOf("data:") !== 0) return dataUrl;
+    var comma = dataUrl.indexOf(",");
+    var mime = dataUrl.slice(5, dataUrl.indexOf(";"));
+    var bin = atob(dataUrl.slice(comma + 1));
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  }
+
   function imgSrc(ref) {
     if (!ref) return "";
-    return ref.indexOf("idb:") === 0 ? (imgCache[ref] || "") : ref;
+    if (ref.indexOf("idb:") !== 0) return ref;
+    if (!imgCache[ref]) return "";
+    if (!blobUrls[ref]) blobUrls[ref] = dataUrlToBlobUrl(imgCache[ref]);
+    return blobUrls[ref];
+  }
+
+  function tourImages(t) {
+    return [t.cover].concat(t.photos || []).map(imgSrc).filter(Boolean);
+  }
+
+  function slidesHtml(t) {
+    var imgs = tourImages(t);
+    if (!imgs.length) return "";
+    var slides = imgs.map(function (src) {
+      return '<div class="slide" style="background-image:url(' + src + ')"></div>';
+    }).join("");
+    var dots = imgs.length > 1
+      ? '<div class="dots" aria-hidden="true">' + imgs.map(function (_, i) {
+          return '<span class="dot' + (i === 0 ? " active" : "") + '"></span>';
+        }).join("") + "</div>"
+      : "";
+    return '<div class="card-slides">' + slides + "</div>" + dots;
   }
 
   function storeImage(dataUrl) {
@@ -343,13 +376,12 @@
   function renderListe() {
     var tours = filteredTours();
     var cards = tours.map(function (t) {
-      var bg = imgSrc(t.cover)
-        ? 'background-image: url(' + imgSrc(t.cover) + '); background-size: cover; background-position: center;'
-        : "background: " + (CATEGORY_GRADIENT[t.category] || CATEGORY_GRADIENT["Wanderung"]) + ";";
+      var bg = "background: " + (CATEGORY_GRADIENT[t.category] || CATEGORY_GRADIENT["Wanderung"]) + ";";
       var ratingStar = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#C1622D" stroke="#C1622D" stroke-width="1" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
       return (
         '<a class="card" href="#/tour/' + t.id + '" style="' + bg + '" aria-label="' +
         escapeHtml(t.title) + ' öffnen">' +
+        slidesHtml(t) +
         '<div class="card-top">' +
         '<div class="card-title">' + escapeHtml(t.title) + "</div>" +
         '<div class="rating-pill">' + ratingStar + " " + fmtRating(t.ratingGesamt) + "</div>" +
@@ -430,9 +462,7 @@
         '<div class="list-body"><a href="#/liste" class="btn-primary" style="text-align:center;">Zurück zur Liste</a></div></div>'
       );
     }
-    var heroBg = imgSrc(t.cover)
-      ? "background-image: url(" + imgSrc(t.cover) + "); background-size: cover; background-position: center;"
-      : "background: " + (CATEGORY_GRADIENT[t.category] || CATEGORY_GRADIENT["Wanderung"]) + ";";
+    var heroBg = "background: " + (CATEGORY_GRADIENT[t.category] || CATEGORY_GRADIENT["Wanderung"]) + ";";
 
     var photos = (t.photos || []).map(function (p) {
       return '<div class="thumb" style="background-image:url(' + imgSrc(p) + ')"></div>';
@@ -441,6 +471,7 @@
     return (
       '<div class="screen">' +
       '<div class="detail-hero" style="' + heroBg + '">' +
+      slidesHtml(t) +
       '<a href="#/liste" class="detail-back" aria-label="Zurück zur Liste">' + icon("back", 18, "#2B2B26") + "</a>" +
       "</div>" +
       '<div class="detail-body">' +
@@ -606,7 +637,7 @@
       '<div class="thumb-row" id="photoRow">' +
       '<button type="button" class="thumb-add" id="addPhotoBtn" aria-label="Weiteres Bild hinzufügen">' + icon("plus", 16, "#57574C") + "</button>" +
       "</div>" +
-      '<input type="file" accept="image/*" id="photoInput" style="display:none;">' +
+      '<input type="file" accept="image/*" multiple id="photoInput" style="display:none;">' +
       "</div>" +
 
       '<div class="field"><label for="titel">Titel der Tour</label>' +
@@ -650,12 +681,12 @@
 
   // ---------------- interactions ----------------
 
-  function readFileAsDataUrl(file, cb) {
+  function readFileAsDataUrl(file, cb, onFail) {
     var reader = new FileReader();
-    reader.onerror = function () { alert("Das Bild konnte nicht gelesen werden."); };
+    reader.onerror = function () { alert("Das Bild konnte nicht gelesen werden."); if (onFail) onFail(); };
     reader.onload = function () {
       var img = new Image();
-      img.onerror = function () { alert("Dieses Bildformat wird nicht unterstützt. Bitte JPEG oder PNG verwenden."); };
+      img.onerror = function () { alert("Dieses Bildformat wird nicht unterstützt. Bitte JPEG oder PNG verwenden."); if (onFail) onFail(); };
       img.onload = function () {
         var scale = Math.min(1, 1400 / Math.max(img.width, img.height));
         var canvas = document.createElement("canvas");
@@ -671,6 +702,15 @@
 
   function wireUp(route) {
     var root = document.getElementById("app");
+
+    root.querySelectorAll(".card-slides").forEach(function (strip) {
+      var dots = strip.parentNode.querySelectorAll(".dot");
+      if (!dots.length) return;
+      strip.addEventListener("scroll", function () {
+        var idx = Math.round(strip.scrollLeft / strip.clientWidth);
+        dots.forEach(function (d, i) { d.classList.toggle("active", i === idx); });
+      }, { passive: true });
+    });
 
     // filter chips (liste / karte)
     root.querySelectorAll(".chip[data-filter]").forEach(function (btn) {
@@ -797,15 +837,22 @@
     var photoInput = root.querySelector("#photoInput");
     addPhotoBtn.addEventListener("click", function () { photoInput.click(); });
     photoInput.addEventListener("change", function () {
-      var file = photoInput.files[0];
-      if (!file) return;
-      readFileAsDataUrl(file, function (dataUrl) {
-        storeImage(dataUrl).then(function (ref) {
-          newPhotos.push(ref);
-          renderPhotoRow();
-        }).catch(function () { alert("Bild konnte nicht gespeichert werden (Browser-Speicher nicht verfügbar)."); });
-      });
+      var files = Array.prototype.slice.call(photoInput.files);
       photoInput.value = "";
+      files.reduce(function (chain, file) {
+        return chain.then(function () {
+          return new Promise(function (resolve) {
+            readFileAsDataUrl(file, function (dataUrl) {
+              storeImage(dataUrl).then(function (ref) {
+                newPhotos.push(ref);
+                renderPhotoRow();
+              }).catch(function () {
+                alert("Bild konnte nicht gespeichert werden (Browser-Speicher nicht verfügbar).");
+              }).then(resolve);
+            }, resolve);
+          });
+        });
+      }, Promise.resolve());
     });
 
     function renderPhotoRow() {
