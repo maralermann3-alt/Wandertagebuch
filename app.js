@@ -45,6 +45,10 @@
       distance: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 3"/><circle cx="3" cy="12" r="1.6" fill="' + color + '" stroke="none"/><circle cx="21" cy="12" r="1.6" fill="' + color + '" stroke="none"/></svg>',
       duration: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
       peak: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6-11 4 7 3-4 5 8z"/></svg>',
+      search: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      filter: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="17" x2="14" y2="17"/></svg>',
+      bike: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>',
+      boot: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h5v7l6.5 2.6a3 3 0 0 1 1.9 2.8V18H6z"/><path d="M4 21h16"/><path d="M6 7.5h5"/></svg>',
       cloud: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>',
       pin: '<svg viewBox="0 0 24 24" fill="' + color + '" stroke="#FFFFFF" stroke-width="1.2" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>'
     };
@@ -116,15 +120,17 @@
   function slidesHtml(t) {
     var imgs = tourImages(t);
     if (!imgs.length) return "";
-    var slides = imgs.map(function (src) {
+    var loop = imgs.length > 1;
+    var shown = loop ? [imgs[imgs.length - 1]].concat(imgs, [imgs[0]]) : imgs;
+    var slides = shown.map(function (src) {
       return '<div class="slide" style="background-image:url(' + src + ')"></div>';
     }).join("");
-    var dots = imgs.length > 1
+    var dots = loop
       ? '<div class="dots" aria-hidden="true">' + imgs.map(function (_, i) {
           return '<span class="dot' + (i === 0 ? " active" : "") + '"></span>';
         }).join("") + "</div>"
       : "";
-    return '<div class="card-slides">' + slides + "</div>" + dots;
+    return '<div class="card-slides"' + (loop ? ' data-loop="' + imgs.length + '"' : "") + ">" + slides + "</div>" + dots;
   }
 
   function storeImage(dataUrl) {
@@ -180,10 +186,38 @@
     return h;
   }
 
+  var MIGRATION_TS = 1789000000000;
+
+  var SEED_EXTRA = {
+    "Lünersee": { lat: 47.0667, lon: 9.717 },
+    "Zürsersee": { lat: 47.176, lon: 10.178 },
+    "Tobelsee": { lat: 47.04085, lon: 9.87119, hmFuss: "400 m" },
+    "Falzer Kopf": { lat: 47.33165, lon: 10.04994, hmFuss: "350 m" },
+    "Gurtisspitze": { lat: 47.18205, lon: 9.63202 },
+    "Hohe Köpfe": { lat: 47.177, lon: 9.638, hmRad: "400 m", hmFuss: "650 m" },
+    "Steg": { lat: 47.11258, lon: 9.57666 },
+    "Saxer Lücke": { lat: 47.2465, lon: 9.4245, hmRad: "400 m", hmFuss: "350 m" },
+    "Seealpsee, Äscher": { lat: 47.26827, lon: 9.40077 },
+    "Hohe Kugel": { lat: 47.33513, lon: 9.71592 },
+    "Fritzensee": { lat: 47.10114, lon: 9.91366 },
+    "Mondspitze": { lat: 47.15271, lon: 9.72635, hmRad: "2000 m", hmFuss: "300 m" },
+    "Drei Schwestern": { lat: 47.17557, lon: 9.57297, hmRad: "1000 m" },
+    "Schesaplana": { lat: 47.05385, lon: 9.70736 },
+    "Kanisfluh": { lat: 47.33135, lon: 9.92543 },
+    "Gamsfreiheit": { lat: 47.02949, lon: 9.81284 },
+    "Drusator": { lat: 47.01808, lon: 9.82537 },
+    "Rote Wand": { lat: 47.18634, lon: 9.9851 },
+    "Naafkopf und Pfälzer Hütte": { lat: 47.06077, lon: 9.60705 },
+    "Goppaschrofen": { lat: 47.17565, lon: 9.61316 },
+    "Galinakopf": { lat: 47.15164, lon: 9.62059, hmRad: "700 m", hmFuss: "650 m" },
+    "Mittagspitz und Runde von Tobelsee": { lat: 47.043, lon: 9.865 },
+    "Langsee": { lat: 47.05124, lon: 10.14618 }
+  };
+
   function seedData() {
     function T(o) {
       var h = hashStr(o.title);
-      return Object.assign({
+      var t = Object.assign({
         id: "seed-" + h.toString(36),
         km: "",
         dauer: "",
@@ -194,8 +228,12 @@
         weg: "",
         zusatz: "",
         cover: null,
-        photos: []
-      }, o, { mapPos: { x: 10 + (h % 7500) / 100, y: 10 + ((h >>> 8) % 7500) / 100 } });
+        photos: [],
+        hmRad: "",
+        hmFuss: ""
+      }, o, SEED_EXTRA[o.title] || {});
+      if (t.category === "Bike & Hike") t.hm = "";
+      return t;
     }
 
     return [
@@ -237,7 +275,9 @@
       var tours = JSON.parse(raw);
       var seedIds = {};
       var taken = {};
-      seedData().forEach(function (s) { seedIds[s.title] = s.id; });
+      var seedsById = {};
+      var migrated = false;
+      seedData().forEach(function (s) { seedIds[s.title] = s.id; seedsById[s.id] = s; });
       tours.forEach(function (t) { taken[t.id] = true; });
       tours.forEach(function (t) {
         var sid = seedIds[t.title];
@@ -245,8 +285,29 @@
           delete taken[t.id];
           t.id = sid;
           taken[sid] = true;
+          migrated = true;
         }
       });
+      tours.forEach(function (t) {
+        var s = seedsById[t.id];
+        if (!s) return;
+        var changed = false;
+        if (t.lat === undefined && s.lat !== undefined) {
+          t.lat = s.lat;
+          t.lon = s.lon;
+          changed = true;
+        }
+        if (t.category === "Bike & Hike" && t.hmRad === undefined && t.hmFuss === undefined) {
+          t.hmRad = s.hmRad || "";
+          t.hmFuss = s.hmFuss || "";
+          changed = true;
+        }
+        if (changed && (t.updatedAt || 0) < MIGRATION_TS) t.updatedAt = MIGRATION_TS;
+        migrated = migrated || changed;
+      });
+      if (migrated) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tours)); } catch (e) {}
+      }
       return tours;
     } catch (e) {
       return seedData();
@@ -300,7 +361,11 @@
     tours: loadTours(),
     gipfel: loadGipfel(),
     deleted: loadMeta(),
-    filter: "Alle"
+    filter: "Alle",
+    search: "",
+    hmRange: "",
+    timeRange: "",
+    filtersOpen: false
   };
 
   // ---------------- sync (Netlify function + blobs) ----------------
@@ -538,9 +603,50 @@
     return null;
   }
 
+  var HM_OPTIONS = [["0-500", "bis 500 m"], ["500-1000", "500–1000 m"], ["1000+", "über 1000 m"]];
+  var TIME_OPTIONS = [["0-120", "bis 2 h"], ["120-240", "2–4 h"], ["240+", "über 4 h"]];
+
+  function parseNum(str) {
+    var m = String(str || "").replace(/\./g, "").match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  }
+
+  function totalHm(t) {
+    if (t.category === "Bike & Hike" && (parseNum(t.hmRad) !== null || parseNum(t.hmFuss) !== null)) {
+      return (parseNum(t.hmRad) || 0) + (parseNum(t.hmFuss) || 0);
+    }
+    return parseNum(t.hm);
+  }
+
+  function parseMinutes(str) {
+    var s = String(str || "");
+    var m = s.match(/(\d+):(\d+)/);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    m = s.match(/(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)/);
+    if (m) return Math.round(((parseFloat(m[1].replace(",", ".")) + parseFloat(m[2].replace(",", "."))) / 2) * 60);
+    m = s.match(/(\d+(?:[.,]\d+)?)\s*h/);
+    if (m) return Math.round(parseFloat(m[1].replace(",", ".")) * 60);
+    return null;
+  }
+
+  function inRange(value, range) {
+    if (!range) return true;
+    if (value === null) return false;
+    if (range.slice(-1) === "+") return value >= parseInt(range, 10);
+    var p = range.split("-");
+    return value >= parseInt(p[0], 10) && value < parseInt(p[1], 10);
+  }
+
   function filteredTours() {
-    if (state.filter === "Alle") return state.tours;
-    return state.tours.filter(function (t) { return t.category === state.filter; });
+    var q = state.search.trim().toLowerCase();
+    return state.tours.filter(function (t) {
+      if (state.filter !== "Alle" && t.category !== state.filter) return false;
+      if (q) {
+        var hay = [t.title, t.region, t.category, t.beschreibung, t.weg, t.zusatz].join(" ").toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return inRange(totalHm(t), state.hmRange) && inRange(parseMinutes(t.dauer), state.timeRange);
+    });
   }
 
   // ---------------- routing ----------------
@@ -571,6 +677,7 @@
   function render() {
     var root = document.getElementById("app");
     var route = parseRoute();
+    destroyMaps();
     if (route.name === "liste") root.innerHTML = renderListe();
     else if (route.name === "karte") root.innerHTML = renderKarte();
     else if (route.name === "tour") root.innerHTML = renderDetail(route.id);
@@ -615,11 +722,26 @@
     );
   }
 
-  function renderListe() {
+  function statItems(t) {
+    var items = [];
+    if (t.category === "Bike & Hike") {
+      if (t.hmRad) items.push({ icon: "bike", val: t.hmRad, label: "Höhenmeter Rad" });
+      if (t.hmFuss) items.push({ icon: "boot", val: t.hmFuss, label: "Höhenmeter Fuß" });
+      if (!t.hmRad && !t.hmFuss && t.hm) items.push({ icon: "elevation", val: t.hm, label: "Höhenmeter" });
+    } else if (t.hm) {
+      items.push({ icon: "elevation", val: t.hm, label: "Höhenmeter" });
+    }
+    if (t.dauer) items.push({ icon: "duration", val: t.dauer, label: "Dauer" });
+    if (t.category === "Mountainbike" && t.km) items.push({ icon: "distance", val: t.km, label: "Distanz" });
+    return items;
+  }
+
+  function cardsHtml() {
     var tours = filteredTours();
-    var cards = tours.map(function (t) {
+    if (!tours.length) return '<div class="empty-state">Keine passenden Touren gefunden.</div>';
+    var ratingStar = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#C1622D" stroke="#C1622D" stroke-width="1" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+    return tours.map(function (t) {
       var bg = "background: " + (CATEGORY_GRADIENT[t.category] || CATEGORY_GRADIENT["Wanderung"]) + ";";
-      var ratingStar = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#C1622D" stroke="#C1622D" stroke-width="1" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
       return (
         '<a class="card" href="#/tour/' + t.id + '" style="' + bg + '" aria-label="' +
         escapeHtml(t.title) + ' öffnen">' +
@@ -629,27 +751,139 @@
         '<div class="rating-pill">' + ratingStar + " " + fmtRating(t.ratingGesamt) + "</div>" +
         "</div>" +
         '<div class="card-bottom">' +
-        (t.hm ? '<span class="card-stat">' + icon("elevation", 15, "#FFFFFF") + escapeHtml(t.hm) + "</span>" : "") +
-        (t.dauer ? '<span class="card-stat">' + icon("duration", 15, "#FFFFFF") + escapeHtml(t.dauer) + "</span>" : "") +
-        (t.km ? '<span class="card-stat">' + icon("distance", 15, "#FFFFFF") + escapeHtml(t.km) + "</span>" : "") +
+        statItems(t).map(function (i) {
+          return '<span class="card-stat" title="' + i.label + '">' + icon(i.icon, 15, "#FFFFFF") + escapeHtml(i.val) + "</span>";
+        }).join("") +
         "</div></a>"
       );
+    }).join("");
+  }
+
+  function toolbarHtml() {
+    var activeCount = (state.hmRange ? 1 : 0) + (state.timeRange ? 1 : 0);
+    var group = function (label, opts, current, key) {
+      return (
+        '<div class="filter-group"><div class="filter-label">' + label + '</div><div class="filter-chips">' +
+        opts.map(function (o) {
+          var on = current === o[0];
+          return '<button type="button" class="chip' + (on ? " active" : "") + '" data-range="' + key +
+            '" data-value="' + o[0] + '" aria-pressed="' + on + '">' + o[1] + "</button>";
+        }).join("") + "</div></div>"
+      );
+    };
+    return (
+      '<div class="toolbar">' +
+      '<label class="search-wrap">' + icon("search", 18, "#57574C") +
+      '<input id="searchInput" type="search" placeholder="Touren suchen …" autocomplete="off" aria-label="Touren suchen" value="' +
+      escapeHtml(state.search) + '"></label>' +
+      '<button type="button" class="filter-btn' + (state.filtersOpen || activeCount ? " on" : "") +
+      '" data-action="toggle-filters" aria-label="Filter" aria-expanded="' + state.filtersOpen + '">' +
+      icon("filter", 20, "currentColor") +
+      '<span class="filter-badge"' + (activeCount ? "" : " hidden") + ">" + activeCount + "</span></button>" +
+      "</div>" +
+      '<div class="chips">' + chipsHtml() + "</div>" +
+      '<div class="filter-panel" id="filterPanel"' + (state.filtersOpen ? "" : " hidden") + ">" +
+      group("Höhenmeter", HM_OPTIONS, state.hmRange, "hm") +
+      group("Dauer", TIME_OPTIONS, state.timeRange, "time") +
+      '<button type="button" class="filter-reset" data-action="reset-filters">Filter zurücksetzen</button></div>'
+    );
+  }
+
+  function wireToolbar(root, refresh) {
+    var input = root.querySelector("#searchInput");
+    var panel = root.querySelector("#filterPanel");
+    var filterBtn = root.querySelector(".filter-btn");
+    var badge = root.querySelector(".filter-badge");
+
+    function syncUi() {
+      root.querySelectorAll(".chip[data-filter]").forEach(function (c) {
+        var on = c.getAttribute("data-filter") === state.filter;
+        c.classList.toggle("active", on);
+        c.setAttribute("aria-pressed", String(on));
+      });
+      root.querySelectorAll(".chip[data-range]").forEach(function (c) {
+        var cur = c.getAttribute("data-range") === "hm" ? state.hmRange : state.timeRange;
+        var on = c.getAttribute("data-value") === cur;
+        c.classList.toggle("active", on);
+        c.setAttribute("aria-pressed", String(on));
+      });
+      var n = (state.hmRange ? 1 : 0) + (state.timeRange ? 1 : 0);
+      badge.textContent = n;
+      badge.hidden = !n;
+      filterBtn.classList.toggle("on", state.filtersOpen || n > 0);
+      filterBtn.setAttribute("aria-expanded", String(state.filtersOpen));
+      panel.hidden = !state.filtersOpen;
+    }
+
+    input.addEventListener("input", function () {
+      state.search = input.value;
+      refresh();
     });
+    root.querySelectorAll(".chip[data-filter]").forEach(function (c) {
+      c.addEventListener("click", function () {
+        state.filter = c.getAttribute("data-filter");
+        syncUi();
+        refresh();
+      });
+    });
+    root.querySelectorAll(".chip[data-range]").forEach(function (c) {
+      c.addEventListener("click", function () {
+        var key = c.getAttribute("data-range") === "hm" ? "hmRange" : "timeRange";
+        var val = c.getAttribute("data-value");
+        state[key] = state[key] === val ? "" : val;
+        syncUi();
+        refresh();
+      });
+    });
+    filterBtn.addEventListener("click", function () {
+      state.filtersOpen = !state.filtersOpen;
+      syncUi();
+    });
+    root.querySelector('[data-action="reset-filters"]').addEventListener("click", function () {
+      state.hmRange = "";
+      state.timeRange = "";
+      syncUi();
+      refresh();
+    });
+  }
 
-    var body = cards.length
-      ? cards.join("")
-      : '<div class="empty-state">Keine Touren in dieser Kategorie.<br>Tippe auf + um eine neue Tour anzulegen.</div>';
+  function refreshList(root) {
+    root.querySelector("#listBody").innerHTML = cardsHtml();
+    wireSlides(root);
+  }
 
+  function wireSlides(root) {
+    root.querySelectorAll(".card-slides[data-loop]").forEach(function (strip) {
+      var n = parseInt(strip.getAttribute("data-loop"), 10);
+      var dots = strip.parentNode.querySelectorAll(".dot");
+      var timer = null;
+      strip.scrollLeft = strip.clientWidth;
+      strip.addEventListener("scroll", function () {
+        var w = strip.clientWidth;
+        var idx = Math.round(strip.scrollLeft / w);
+        var real = (idx - 1 + n) % n;
+        dots.forEach(function (d, i) { d.classList.toggle("active", i === real); });
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          var i = Math.round(strip.scrollLeft / w);
+          if (i === 0) strip.scrollLeft = n * w;
+          else if (i === n + 1) strip.scrollLeft = w;
+        }, 120);
+      }, { passive: true });
+    });
+  }
+
+  function renderListe() {
     return (
       '<div class="screen">' +
+      navbarHtml("liste") +
       '<div class="header">' + syncLinkHtml() +
       '<div class="header-title">Wandertagebuch</div>' +
       '<div class="header-sub">Deine Touren in Vorarlberg</div>' +
       "</div>" +
-      '<div class="chips">' + chipsHtml() + "</div>" +
-      '<div class="list-body">' + body + "</div>" +
+      toolbarHtml() +
+      '<div class="list-body" id="listBody">' + cardsHtml() + "</div>" +
       '<a href="#/neu" class="fab" aria-label="Neue Tour anlegen">' + icon("plus", 22, "#FFFFFF") + "</a>" +
-      navbarHtml("liste") +
       "</div>"
     );
   }
@@ -658,40 +892,113 @@
     return (Math.round(r * 10) / 10).toString().replace(".", ",");
   }
 
-  function renderKarte() {
-    var tours = filteredTours();
-    var pins = tours.map(function (t) {
-      var color = CATEGORY_COLOR[t.category] || CATEGORY_COLOR["Wanderung"];
-      return (
-        '<a class="pin" href="#/tour/' + t.id + '" aria-label="' + escapeHtml(t.title) +
-        '" style="left: ' + t.mapPos.x + '%; top: ' + t.mapPos.y + '%;">' +
-        icon("pin", 30, color) + "</a>"
-      );
-    }).join("");
+  // ---------------- map (Leaflet + OpenStreetMap) ----------------
 
+  var mapInstance = null;
+  var mapLayer = null;
+  var pickMapInstance = null;
+  var leafletPromise = null;
+
+  function ensureLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (!leafletPromise) {
+      leafletPromise = new Promise(function (resolve, reject) {
+        var css = document.createElement("link");
+        css.rel = "stylesheet";
+        css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+        document.head.appendChild(css);
+        var js = document.createElement("script");
+        js.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+        js.onload = resolve;
+        js.onerror = function () { leafletPromise = null; reject(new Error("leaflet")); };
+        document.head.appendChild(js);
+      });
+    }
+    return leafletPromise;
+  }
+
+  function destroyMaps() {
+    if (mapInstance) { mapInstance.remove(); mapInstance = null; mapLayer = null; }
+    if (pickMapInstance) { pickMapInstance.remove(); pickMapInstance = null; }
+  }
+
+  function addBaseLayer(map) {
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap-Mitwirkende"
+    }).addTo(map);
+  }
+
+  function pinIcon(color) {
+    return L.divIcon({
+      className: "pin-icon",
+      html: icon("pin", 34, color),
+      iconSize: [34, 34],
+      iconAnchor: [17, 34],
+      popupAnchor: [0, -30]
+    });
+  }
+
+  function popupHtml(t) {
+    var stats = statItems(t).map(function (i) { return escapeHtml(i.val); }).join(" · ");
+    return (
+      '<a class="popup-link" href="#/tour/' + t.id + '"><strong>' + escapeHtml(t.title) + "</strong></a>" +
+      (stats ? "<br>" + stats : "") + '<br><span class="popup-cat">' + escapeHtml(t.category) + "</span>"
+    );
+  }
+
+  function updateMarkers() {
+    if (!mapInstance) return;
+    mapLayer.clearLayers();
+    var pts = [];
+    var noLoc = 0;
+    filteredTours().forEach(function (t) {
+      if (t.lat == null || t.lon == null) { noLoc++; return; }
+      var color = CATEGORY_COLOR[t.category] || CATEGORY_COLOR["Wanderung"];
+      L.marker([t.lat, t.lon], { icon: pinIcon(color), title: t.title, alt: t.title })
+        .bindPopup(popupHtml(t)).addTo(mapLayer);
+      pts.push([t.lat, t.lon]);
+    });
+    if (pts.length) mapInstance.fitBounds(pts, { padding: [40, 40], maxZoom: 12 });
+    var note = document.getElementById("mapNote");
+    if (note) {
+      note.textContent = noLoc ? noLoc + (noLoc === 1 ? " Tour hat" : " Touren haben") + " noch keinen Standort (in „Bearbeiten“ setzen)." : "";
+      note.hidden = !noLoc;
+    }
+  }
+
+  function initMap() {
+    ensureLeaflet().then(function () {
+      var el = document.getElementById("map");
+      if (!el || mapInstance) return;
+      mapInstance = L.map(el).setView([47.2, 9.75], 9);
+      addBaseLayer(mapInstance);
+      mapLayer = L.layerGroup().addTo(mapInstance);
+      updateMarkers();
+    }).catch(function () {
+      var el = document.getElementById("map");
+      if (el) el.innerHTML = '<div class="map-error">Karte konnte nicht geladen werden (keine Internetverbindung?).</div>';
+    });
+  }
+
+  function renderKarte() {
     return (
       '<div class="screen">' +
+      navbarHtml("karte") +
       '<div class="header">' + syncLinkHtml() +
       '<div class="header-title">Wandertagebuch</div>' +
       '<div class="header-sub">Karte deiner Touren</div>' +
       "</div>" +
-      '<div class="chips">' + chipsHtml() + "</div>" +
+      toolbarHtml() +
       '<div class="map-wrap">' +
-      '<svg viewBox="0 0 350 500" width="100%" height="100%" style="position:absolute;inset:0;opacity:0.55;" aria-hidden="true">' +
-      '<path d="M0 380 Q60 300 130 350 T260 320 T350 380 V500 H0 Z" fill="#A9C29B"/>' +
-      '<path d="M0 420 Q90 360 180 410 T350 400 V500 H0 Z" fill="#9AB78A"/>' +
-      '<path d="M40 120 Q90 40 150 110 T260 90" stroke="#7E9A72" stroke-width="2" fill="none" opacity="0.5"/>' +
-      '<path d="M10 200 Q100 140 190 200 T340 180" stroke="#7E9A72" stroke-width="2" fill="none" opacity="0.4"/>' +
-      "</svg>" +
-      '<div class="map-region-label">Vorarlberg</div>' +
-      pins +
+      '<div id="map" role="application" aria-label="Karte deiner Touren"></div>' +
       '<div class="map-legend">' +
       '<div class="legend-row"><span class="legend-dot" style="background:#3F5D45;"></span>Wanderung</div>' +
       '<div class="legend-row"><span class="legend-dot" style="background:#C1622D;"></span>Bike &amp; Hike</div>' +
       '<div class="legend-row"><span class="legend-dot" style="background:#2B2B26;"></span>Mountainbike</div>' +
       "</div>" +
+      '<div class="map-note" id="mapNote" hidden></div>' +
       "</div>" +
-      navbarHtml("karte") +
       "</div>"
     );
   }
@@ -710,6 +1017,8 @@
       return '<div class="thumb" style="background-image:url(' + imgSrc(p) + ')"></div>';
     }).join("");
 
+    var stats = statItems(t);
+
     return (
       '<div class="screen">' +
       '<div class="detail-hero" style="' + heroBg + '">' +
@@ -727,11 +1036,9 @@
       rateBlock("Aussicht", t.ratingAussicht) +
       rateBlock("Natur", t.ratingNatur) +
       "</div>" +
-      '<div class="stat-row">' +
-      statBlock("elevation", t.hm, "Höhenmeter") +
-      statBlock("distance", t.km, "Distanz") +
-      statBlock("duration", t.dauer, "Dauer") +
-      "</div>" +
+      (stats.length
+        ? '<div class="stat-row">' + stats.map(function (i) { return statBlock(i.icon, i.val, i.label); }).join("") + "</div>"
+        : "") +
       (t.beschreibung ? '<div><h3>Beschreibung</h3><p>' + escapeHtml(t.beschreibung) + "</p></div>" : "") +
       (t.weg ? '<div><h3>Wegbeschreibung</h3><p>' + escapeHtml(t.weg) + "</p></div>" : "") +
       (t.zusatz ? '<div><h3>Gut zu wissen</h3><p>' + escapeHtml(t.zusatz) + "</p></div>" : "") +
@@ -808,11 +1115,11 @@
 
     return (
       '<div class="screen">' +
+      navbarHtml("gipfel") +
       '<div class="header">' + syncLinkHtml() + '<div class="header-title">Gipfeltagebuch</div>' +
       '<div class="header-sub">' + state.gipfel.length + " Gipfel · " + total + " Besteigungen</div></div>" +
       '<div class="list-body" style="padding-top:16px;">' + body + "</div>" +
       '<a href="#/gipfel/neu" class="fab" aria-label="Gipfel eintragen">' + icon("plus", 22, "#FFFFFF") + "</a>" +
-      navbarHtml("gipfel") +
       "</div>"
     );
   }
@@ -926,9 +1233,11 @@
       '<input id="datum" type="text" placeholder="12.07.2026" value="' + escapeHtml(editTour && editTour.date !== "–" ? editTour.date : "") + '"></div>' +
 
       '<div class="field-row">' +
-      '<div class="field"><label for="hm">Höhenmeter</label><input id="hm" type="text" placeholder="850 m" value="' + escapeHtml(editTour ? editTour.hm : "") + '"></div>' +
-      '<div class="field"><label for="km">Distanz</label><input id="km" type="text" placeholder="12,4 km" value="' + escapeHtml(editTour ? editTour.km : "") + '"></div>' +
-      '<div class="field"><label for="dauer">Dauer</label><input id="dauer" type="text" placeholder="4:30 h" value="' + escapeHtml(editTour ? editTour.dauer : "") + '"></div>' +
+      '<div class="field" id="fHm"><label for="hm">Höhenmeter</label><input id="hm" type="text" placeholder="850 m" value="' + escapeHtml(editTour ? editTour.hm : "") + '"></div>' +
+      '<div class="field" id="fRad"><label for="hmRad">Höhenmeter Rad</label><input id="hmRad" type="text" placeholder="400 m" value="' + escapeHtml(editTour ? editTour.hmRad : "") + '"></div>' +
+      '<div class="field" id="fFuss"><label for="hmFuss">Höhenmeter Fuß</label><input id="hmFuss" type="text" placeholder="650 m" value="' + escapeHtml(editTour ? editTour.hmFuss : "") + '"></div>' +
+      '<div class="field" id="fKm"><label for="km">Distanz</label><input id="km" type="text" placeholder="12,4 km" value="' + escapeHtml(editTour ? editTour.km : "") + '"></div>' +
+      '<div class="field" id="fDauer"><label for="dauer">Dauer</label><input id="dauer" type="text" placeholder="4:30 h" value="' + escapeHtml(editTour ? editTour.dauer : "") + '"></div>' +
       "</div>" +
 
       '<div class="field"><label>Bewertung – Gesamttour</label><div class="stars-edit" data-group="ratingGesamt">' + starsBlock("ratingGesamt", editTour && editTour.ratingGesamt) + "</div></div>" +
@@ -943,6 +1252,13 @@
 
       '<div class="field"><label for="zusatz">Zusatzinfos</label>' +
       '<textarea id="zusatz" placeholder="z. B. gut zum Pilze sammeln, Einkehrmöglichkeit …">' + escapeHtml(editTour ? editTour.zusatz : "") + "</textarea></div>" +
+
+      '<div class="field"><label for="ortSuche">Standort auf der Karte</label>' +
+      '<div class="add-visit"><input id="ortSuche" type="search" placeholder="Ort oder Gipfel suchen …" autocomplete="off">' +
+      '<button type="button" class="btn-edit" id="ortBtn" style="flex:none;padding:10px 18px;">Suchen</button></div>' +
+      '<div class="pick-map-wrap"><div id="pickMap"></div></div>' +
+      '<div class="pick-hint" id="pickHint">Tippe auf die Karte, um den Standort zu setzen.</div>' +
+      "</div>" +
 
       '<div class="error-text" id="formError"></div>' +
       '<button type="button" class="btn-primary" data-action="save">' + (editTour ? "Änderungen speichern" : "Tour speichern") + "</button>" +
@@ -975,22 +1291,16 @@
   function wireUp(route) {
     var root = document.getElementById("app");
 
-    root.querySelectorAll(".card-slides").forEach(function (strip) {
-      var dots = strip.parentNode.querySelectorAll(".dot");
-      if (!dots.length) return;
-      strip.addEventListener("scroll", function () {
-        var idx = Math.round(strip.scrollLeft / strip.clientWidth);
-        dots.forEach(function (d, i) { d.classList.toggle("active", i === idx); });
-      }, { passive: true });
-    });
+    wireSlides(root);
 
-    // filter chips (liste / karte)
-    root.querySelectorAll(".chip[data-filter]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        state.filter = btn.getAttribute("data-filter");
-        render();
-      });
-    });
+    if (route.name === "liste") {
+      wireToolbar(root, function () { refreshList(root); });
+    }
+
+    if (route.name === "karte") {
+      wireToolbar(root, updateMarkers);
+      initMap();
+    }
 
     if (route.name === "tour") {
       var delBtn = root.querySelector('[data-action="delete"]');
@@ -1115,6 +1425,64 @@
       ratingNatur: editTour ? editTour.ratingNatur : 0
     };
     var category = editTour ? editTour.category : CATEGORIES[0];
+    var lat = editTour && editTour.lat != null ? editTour.lat : null;
+    var lon = editTour && editTour.lon != null ? editTour.lon : null;
+
+    function applyCategory() {
+      var bh = category === "Bike & Hike";
+      root.querySelector("#fHm").hidden = bh;
+      root.querySelector("#fRad").hidden = !bh;
+      root.querySelector("#fFuss").hidden = !bh;
+      root.querySelector("#fKm").hidden = category !== "Mountainbike";
+    }
+    applyCategory();
+
+    var pickHint = root.querySelector("#pickHint");
+    var pickMarker = null;
+
+    function setPoint(la, lo, move) {
+      lat = la;
+      lon = lo;
+      pickHint.textContent = "Standort gesetzt (" + la.toFixed(4) + ", " + lo.toFixed(4) + "). Zum Ändern erneut tippen oder Marker ziehen.";
+      if (!pickMapInstance) return;
+      if (pickMarker) pickMarker.setLatLng([la, lo]);
+      else {
+        pickMarker = L.marker([la, lo], { draggable: true, icon: pinIcon("#C1622D") }).addTo(pickMapInstance);
+        pickMarker.on("dragend", function () {
+          var p = pickMarker.getLatLng();
+          setPoint(p.lat, p.lng, false);
+        });
+      }
+      if (move) pickMapInstance.setView([la, lo], Math.max(pickMapInstance.getZoom(), 12));
+    }
+
+    ensureLeaflet().then(function () {
+      var el = root.querySelector("#pickMap");
+      if (!el || pickMapInstance) return;
+      pickMapInstance = L.map(el, { dragging: !L.Browser.mobile }).setView(lat !== null ? [lat, lon] : [47.2, 9.75], lat !== null ? 12 : 8);
+      addBaseLayer(pickMapInstance);
+      if (lat !== null) setPoint(lat, lon, false);
+      pickMapInstance.on("click", function (e) { setPoint(e.latlng.lat, e.latlng.lng, false); });
+    }).catch(function () {
+      pickHint.textContent = "Karte konnte nicht geladen werden (keine Internetverbindung?).";
+    });
+
+    function searchPlace() {
+      var q = root.querySelector("#ortSuche").value.trim();
+      if (!q) return;
+      pickHint.textContent = "Suche …";
+      fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(q))
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (!res.length) { pickHint.textContent = "Nichts gefunden. Anderen Namen versuchen oder direkt auf die Karte tippen."; return; }
+          setPoint(parseFloat(res[0].lat), parseFloat(res[0].lon), true);
+        })
+        .catch(function () { pickHint.textContent = "Suche fehlgeschlagen (keine Verbindung?)."; });
+    }
+    root.querySelector("#ortBtn").addEventListener("click", searchPlace);
+    root.querySelector("#ortSuche").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); searchPlace(); }
+    });
 
     var coverBox = root.querySelector("#coverBox");
     var coverInput = root.querySelector("#coverInput");
@@ -1183,6 +1551,7 @@
     catChips.querySelectorAll(".chip").forEach(function (chip) {
       chip.addEventListener("click", function () {
         category = chip.getAttribute("data-cat");
+        applyCategory();
         catChips.querySelectorAll(".chip").forEach(function (c) {
           c.classList.toggle("active", c === chip);
           c.setAttribute("aria-pressed", c === chip ? "true" : "false");
@@ -1219,6 +1588,10 @@
         category: category,
         date: root.querySelector("#datum").value.trim() || "–",
         hm: root.querySelector("#hm").value.trim(),
+        hmRad: root.querySelector("#hmRad").value.trim(),
+        hmFuss: root.querySelector("#hmFuss").value.trim(),
+        lat: lat,
+        lon: lon,
         km: root.querySelector("#km").value.trim(),
         dauer: root.querySelector("#dauer").value.trim(),
         ratingGesamt: ratings.ratingGesamt,
@@ -1254,8 +1627,7 @@
         var tour = Object.assign({
           id: uid(),
           region: "Vorarlberg",
-          createdAt: Date.now(),
-          mapPos: { x: 15 + Math.random() * 70, y: 15 + Math.random() * 70 }
+          createdAt: Date.now()
         }, fields);
         state.tours.unshift(tour);
         if (!saveTours(state.tours)) {
