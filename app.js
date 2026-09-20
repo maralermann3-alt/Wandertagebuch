@@ -45,6 +45,7 @@
       distance: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 3"/><circle cx="3" cy="12" r="1.6" fill="' + color + '" stroke="none"/><circle cx="21" cy="12" r="1.6" fill="' + color + '" stroke="none"/></svg>',
       duration: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
       peak: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20l6-11 4 7 3-4 5 8z"/></svg>',
+      cloud: '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>',
       pin: '<svg viewBox="0 0 24 24" fill="' + color + '" stroke="#FFFFFF" stroke-width="1.2" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>'
     };
     return icons[name] || "";
@@ -128,8 +129,7 @@
 
   function storeImage(dataUrl) {
     var ref = "idb:" + uid();
-    imgCache[ref] = dataUrl;
-    return idbTx("readwrite", function (s) { return s.put(dataUrl, ref); }).then(function () { return ref; });
+    return putImage(ref, dataUrl).then(function () { return ref; });
   }
 
   function deleteImages(refs) {
@@ -174,10 +174,17 @@
 
   // ---------------- data layer ----------------
 
+  function hashStr(s) {
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    return h;
+  }
+
   function seedData() {
     function T(o) {
+      var h = hashStr(o.title);
       return Object.assign({
-        id: uid(),
+        id: "seed-" + h.toString(36),
         km: "",
         dauer: "",
         ratingGesamt: 0,
@@ -188,7 +195,7 @@
         zusatz: "",
         cover: null,
         photos: []
-      }, o, { mapPos: { x: 10 + Math.random() * 75, y: 10 + Math.random() * 75 } });
+      }, o, { mapPos: { x: 10 + (h % 7500) / 100, y: 10 + ((h >>> 8) % 7500) / 100 } });
     }
 
     return [
@@ -227,7 +234,20 @@
         saveTours(seeded);
         return seeded;
       }
-      return JSON.parse(raw);
+      var tours = JSON.parse(raw);
+      var seedIds = {};
+      var taken = {};
+      seedData().forEach(function (s) { seedIds[s.title] = s.id; });
+      tours.forEach(function (t) { taken[t.id] = true; });
+      tours.forEach(function (t) {
+        var sid = seedIds[t.title];
+        if (sid && t.id !== sid && !taken[sid] && t.id.indexOf("seed-") !== 0) {
+          delete taken[t.id];
+          t.id = sid;
+          taken[sid] = true;
+        }
+      });
+      return tours;
     } catch (e) {
       return seedData();
     }
@@ -236,6 +256,7 @@
   function saveTours(tours) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tours));
+      scheduleSync();
       return true;
     } catch (e) {
       return false;
@@ -256,17 +277,236 @@
   function saveGipfel() {
     try {
       localStorage.setItem(GIPFEL_KEY, JSON.stringify(state.gipfel));
+      scheduleSync();
       return true;
     } catch (e) {
       return false;
     }
   }
 
+  var META_KEY = "wandertagebuch.meta.v1";
+  var SYNC_KEY = "wandertagebuch.sync.v1";
+
+  function loadMeta() {
+    try {
+      var raw = localStorage.getItem(META_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
   var state = {
     tours: loadTours(),
     gipfel: loadGipfel(),
+    deleted: loadMeta(),
     filter: "Alle"
   };
+
+  // ---------------- sync (Netlify function + blobs) ----------------
+
+  var syncState = { running: false, pending: false, timer: null, msg: "", kind: "" };
+
+  function getPw() {
+    try {
+      var raw = localStorage.getItem(SYNC_KEY);
+      return raw ? JSON.parse(raw).password || "" : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setPw(pw) {
+    try {
+      if (pw) localStorage.setItem(SYNC_KEY, JSON.stringify({ password: pw }));
+      else localStorage.removeItem(SYNC_KEY);
+    } catch (e) {}
+  }
+
+  function saveMeta() {
+    try { localStorage.setItem(META_KEY, JSON.stringify(state.deleted)); } catch (e) {}
+  }
+
+  function markDeleted(key) {
+    state.deleted[key] = Date.now();
+    saveMeta();
+    scheduleSync();
+  }
+
+  function setSyncMsg(msg, kind) {
+    syncState.msg = msg;
+    syncState.kind = kind || "";
+    var el = document.getElementById("syncStatus");
+    if (el) {
+      el.textContent = msg;
+      el.className = "sync-status " + (kind || "");
+    }
+  }
+
+  function scheduleSync() {
+    if (!state || !getPw()) return;
+    clearTimeout(syncState.timer);
+    syncState.timer = setTimeout(function () { syncNow(); }, 1500);
+  }
+
+  function api(method, query, body) {
+    return fetch("/api?" + query, { method: method, headers: { "x-sync-password": getPw() }, body: body })
+      .then(function (res) {
+        if (res.status === 401) throw new Error("auth");
+        if (res.status === 503) throw new Error("notconfigured");
+        return res;
+      });
+  }
+
+  function pickNewer(local, remote) {
+    var ul = local.updatedAt || 0;
+    var ur = remote.updatedAt || 0;
+    if (ul !== ur) return ul > ur ? local : remote;
+    var cl = tourRefs(local).length;
+    var cr = tourRefs(remote).length;
+    if (cl !== cr) return cl > cr ? local : remote;
+    return remote;
+  }
+
+  function mergeById(localArr, remoteArr, keyFn, prefix, deleted) {
+    var l = {}, r = {}, keys = [];
+    localArr.forEach(function (x) { l[keyFn(x)] = x; keys.push(keyFn(x)); });
+    remoteArr.forEach(function (x) {
+      var k = keyFn(x);
+      r[k] = x;
+      if (!l[k]) keys.push(k);
+    });
+    var out = [];
+    keys.forEach(function (k) {
+      var item = l[k] && r[k] ? pickNewer(l[k], r[k]) : (l[k] || r[k]);
+      var t = deleted[prefix + k];
+      if (t !== undefined) {
+        if (t >= (item.updatedAt || 0)) return;
+        delete deleted[prefix + k];
+      }
+      out.push(item);
+    });
+    return out;
+  }
+
+  function mergeData(remote) {
+    var deleted = Object.assign({}, state.deleted);
+    Object.keys(remote.deleted || {}).forEach(function (k) {
+      deleted[k] = Math.max(deleted[k] || 0, remote.deleted[k]);
+    });
+    var tours = mergeById(state.tours, remote.tours || [], function (t) { return t.id; }, "tour:", deleted);
+    var fresh = tours.filter(function (t) { return t.createdAt; }).sort(function (a, b) { return b.createdAt - a.createdAt; });
+    var rest = tours.filter(function (t) { return !t.createdAt; });
+    var gipfel = mergeById(state.gipfel, remote.gipfel || [], function (g) { return g.name.toLowerCase(); }, "gipfel:", deleted);
+    return { tours: fresh.concat(rest), gipfel: gipfel, deleted: deleted };
+  }
+
+  function putImage(ref, dataUrl) {
+    imgCache[ref] = dataUrl;
+    return idbTx("readwrite", function (s) { return s.put(dataUrl, ref); });
+  }
+
+  function runPool(items, size, worker) {
+    var i = 0;
+    function next() {
+      if (i >= items.length) return Promise.resolve();
+      var item = items[i++];
+      return worker(item).then(next);
+    }
+    var starters = [];
+    for (var n = 0; n < Math.min(size, items.length); n++) starters.push(next());
+    return Promise.all(starters);
+  }
+
+  function syncImages(tours) {
+    var seen = {};
+    var refs = [];
+    tours.forEach(function (t) {
+      tourRefs(t).forEach(function (r) { if (!seen[r]) { seen[r] = true; refs.push(r); } });
+    });
+    return api("GET", "list=1").then(function (res) {
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    }).then(function (remoteList) {
+      var remoteSet = {};
+      remoteList.forEach(function (r) { remoteSet[r] = true; });
+      var ups = refs.filter(function (r) { return imgCache[r] && !remoteSet[r]; });
+      var downs = refs.filter(function (r) { return !imgCache[r] && remoteSet[r]; });
+      var total = ups.length + downs.length;
+      var done = 0;
+      var progress = function () { setSyncMsg("Bilder " + (++done) + " von " + total + " …", "busy"); };
+      return runPool(ups, 4, function (r) {
+        return api("PUT", "key=" + encodeURIComponent(r), imgCache[r]).then(function (res) {
+          if (!res.ok) throw new Error("http " + res.status);
+          progress();
+        });
+      }).then(function () {
+        return runPool(downs, 4, function (r) {
+          return api("GET", "key=" + encodeURIComponent(r)).then(function (res) {
+            if (!res.ok) { progress(); return null; }
+            return res.text().then(function (text) { return putImage(r, text); }).then(progress);
+          });
+        });
+      }).then(function () { return downs.length > 0; });
+    });
+  }
+
+  function rerenderIfSafe() {
+    var name = parseRoute().name;
+    if (["liste", "karte", "tour", "gipfel", "gipfeldetail"].indexOf(name) > -1) render();
+  }
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function syncNow() {
+    if (!getPw()) return Promise.resolve();
+    if (syncState.running) { syncState.pending = true; return Promise.resolve(); }
+    syncState.running = true;
+    setSyncMsg("Synchronisiere …", "busy");
+    var changed = false;
+    var remote = { tours: [], gipfel: [], deleted: {} };
+
+    return api("GET", "key=data").then(function (res) {
+      if (res.ok) return res.json().then(function (d) { remote = d; });
+      if (res.status !== 404) throw new Error("http " + res.status);
+    }).then(function () {
+      var before = JSON.stringify([state.tours, state.gipfel]);
+      var merged = mergeData(remote);
+      state.tours = merged.tours;
+      state.gipfel = merged.gipfel;
+      state.deleted = merged.deleted;
+      changed = JSON.stringify([state.tours, state.gipfel]) !== before;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tours));
+        localStorage.setItem(GIPFEL_KEY, JSON.stringify(state.gipfel));
+      } catch (e) {}
+      saveMeta();
+      return syncImages(state.tours);
+    }).then(function (downloaded) {
+      if (downloaded) changed = true;
+      var out = JSON.stringify({ tours: state.tours, gipfel: state.gipfel, deleted: state.deleted });
+      var old = JSON.stringify({ tours: remote.tours || [], gipfel: remote.gipfel || [], deleted: remote.deleted || {} });
+      if (out === old) return;
+      return api("PUT", "key=data", out).then(function (res) {
+        if (!res.ok) throw new Error("http " + res.status);
+      });
+    }).then(function () {
+      var d = new Date();
+      setSyncMsg("Zuletzt synchronisiert: " + pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + " Uhr", "ok");
+      if (changed) rerenderIfSafe();
+    }).catch(function (e) {
+      var m = e && e.message;
+      if (m === "auth") setSyncMsg("Passwort falsch.", "err");
+      else if (m === "notconfigured") setSyncMsg("Auf dem Server ist noch kein Passwort eingerichtet (SYNC_PASSWORD in Netlify).", "err");
+      else setSyncMsg("Synchronisierung fehlgeschlagen (keine Verbindung?). Später erneut versuchen.", "err");
+    }).then(function () {
+      syncState.running = false;
+      if (syncState.pending) { syncState.pending = false; scheduleSync(); }
+    });
+  }
+
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) scheduleSync(); });
+  window.addEventListener("online", scheduleSync);
 
   function getGipfel(id) {
     for (var i = 0; i < state.gipfel.length; i++) {
@@ -311,6 +551,7 @@
     if (parts.length === 0) return { name: "liste" };
     if (parts[0] === "karte") return { name: "karte" };
     if (parts[0] === "neu") return { name: "neu" };
+    if (parts[0] === "sync") return { name: "sync" };
     if (parts[0] === "gipfel" && parts[1] === "neu") return { name: "gipfelneu" };
     if (parts[0] === "gipfel" && parts[1]) return { name: "gipfeldetail", id: parts[1] };
     if (parts[0] === "gipfel") return { name: "gipfel" };
@@ -335,6 +576,7 @@
     else if (route.name === "tour") root.innerHTML = renderDetail(route.id);
     else if (route.name === "neu") root.innerHTML = renderNeu(null);
     else if (route.name === "bearbeiten") root.innerHTML = renderNeu(getTour(route.id));
+    else if (route.name === "sync") root.innerHTML = renderSync();
     else if (route.name === "gipfel") root.innerHTML = renderGipfel();
     else if (route.name === "gipfelneu") root.innerHTML = renderGipfelNeu();
     else if (route.name === "gipfeldetail") root.innerHTML = renderGipfelDetail(route.id);
@@ -400,7 +642,7 @@
 
     return (
       '<div class="screen">' +
-      '<div class="header">' +
+      '<div class="header">' + syncLinkHtml() +
       '<div class="header-title">Wandertagebuch</div>' +
       '<div class="header-sub">Deine Touren in Vorarlberg</div>' +
       "</div>" +
@@ -429,7 +671,7 @@
 
     return (
       '<div class="screen">' +
-      '<div class="header">' +
+      '<div class="header">' + syncLinkHtml() +
       '<div class="header-title">Wandertagebuch</div>' +
       '<div class="header-sub">Karte deiner Touren</div>' +
       "</div>" +
@@ -517,6 +759,36 @@
     );
   }
 
+  function syncLinkHtml() {
+    var on = !!getPw();
+    return (
+      '<a href="#/sync" class="sync-link' + (on ? " on" : "") + '" aria-label="Synchronisierung' +
+      (on ? " (verbunden)" : "") + '">' + icon("cloud", 22, "#57574C") + "</a>"
+    );
+  }
+
+  function renderSync() {
+    var on = !!getPw();
+    return (
+      '<div class="screen">' +
+      '<div class="form-header">' +
+      '<a href="#/liste" class="form-back" aria-label="Zurück">' + icon("back", 16, "#2B2B26") + "</a>" +
+      '<div class="form-title">Synchronisierung</div>' +
+      '<span style="width:44px;"></span>' +
+      "</div>" +
+      '<div class="form-body">' +
+      '<p class="sync-info">Mit einem gemeinsamen Passwort werden Touren, Gipfel und Bilder online gespeichert und auf allen Geräten abgeglichen. ' +
+      "Gib auf jedem Gerät dasselbe Passwort ein.</p>" +
+      '<div class="field"><label for="syncPw">Passwort</label>' +
+      '<input id="syncPw" type="password" autocomplete="off" value="' + escapeHtml(getPw()) + '"></div>' +
+      '<div class="sync-status ' + syncState.kind + '" id="syncStatus" role="status">' +
+      escapeHtml(syncState.msg || (on ? "Verbunden." : "Nicht verbunden.")) + "</div>" +
+      '<button type="button" class="btn-primary" data-action="sync-connect">' + (on ? "Jetzt synchronisieren" : "Verbinden") + "</button>" +
+      (on ? '<button type="button" class="btn-danger" data-action="sync-disconnect" style="flex:none;">Trennen</button>' : "") +
+      "</div></div>"
+    );
+  }
+
   function renderGipfel() {
     var list = state.gipfel.slice().sort(function (a, b) {
       return lastVisit(b).localeCompare(lastVisit(a));
@@ -536,7 +808,7 @@
 
     return (
       '<div class="screen">' +
-      '<div class="header"><div class="header-title">Gipfeltagebuch</div>' +
+      '<div class="header">' + syncLinkHtml() + '<div class="header-title">Gipfeltagebuch</div>' +
       '<div class="header-sub">' + state.gipfel.length + " Gipfel · " + total + " Besteigungen</div></div>" +
       '<div class="list-body" style="padding-top:16px;">' + body + "</div>" +
       '<a href="#/gipfel/neu" class="fab" aria-label="Gipfel eintragen">' + icon("plus", 22, "#FFFFFF") + "</a>" +
@@ -728,9 +1000,33 @@
             var id = delBtn.getAttribute("data-id");
             deleteImages(tourRefs(getTour(id) || {}));
             state.tours = state.tours.filter(function (t) { return t.id !== id; });
+            state.deleted["tour:" + id] = Date.now();
+            saveMeta();
             saveTours(state.tours);
             navigate("#/liste");
           }
+        });
+      }
+    }
+
+    if (route.name === "sync") {
+      var connectBtn = root.querySelector('[data-action="sync-connect"]');
+      connectBtn.addEventListener("click", function () {
+        var pw = root.querySelector("#syncPw").value.trim();
+        if (!pw) {
+          setSyncMsg("Bitte ein Passwort eingeben.", "err");
+          return;
+        }
+        setPw(pw);
+        syncNow();
+      });
+      var discBtn = root.querySelector('[data-action="sync-disconnect"]');
+      if (discBtn) {
+        discBtn.addEventListener("click", function () {
+          setPw("");
+          syncState.msg = "Nicht verbunden.";
+          syncState.kind = "";
+          render();
         });
       }
     }
@@ -762,6 +1058,7 @@
             state.gipfel.push(g);
           }
           g.visits.push(date);
+          g.updatedAt = Date.now();
           saveGipfel();
           navigate("#/gipfel/" + g.id);
         });
@@ -775,6 +1072,7 @@
         var date = root.querySelector("#gdatum").value;
         if (!date) return;
         g.visits.push(date);
+        g.updatedAt = Date.now();
         saveGipfel();
         render();
       });
@@ -785,9 +1083,12 @@
           if (idx > -1) g.visits.splice(idx, 1);
           if (g.visits.length === 0) {
             state.gipfel = state.gipfel.filter(function (x) { return x.id !== g.id; });
+            state.deleted["gipfel:" + g.name.toLowerCase()] = Date.now();
+            saveMeta();
             saveGipfel();
             navigate("#/gipfel");
           } else {
+            g.updatedAt = Date.now();
             saveGipfel();
             render();
           }
@@ -796,6 +1097,8 @@
       root.querySelector('[data-action="del-gipfel"]').addEventListener("click", function () {
         if (confirm("Diesen Gipfel mit allen Besteigungen löschen?")) {
           state.gipfel = state.gipfel.filter(function (x) { return x.id !== g.id; });
+          state.deleted["gipfel:" + g.name.toLowerCase()] = Date.now();
+          saveMeta();
           saveGipfel();
           navigate("#/gipfel");
         }
@@ -925,26 +1228,33 @@
         weg: root.querySelector("#weg").value.trim(),
         zusatz: root.querySelector("#zusatz").value.trim(),
         cover: newCover,
-        photos: newPhotos.slice()
+        photos: newPhotos.slice(),
+        updatedAt: Date.now()
       };
 
       var fullMsg = "Speichern fehlgeschlagen: Browser-Speicher voll.";
 
       if (editTour) {
-        var backup = Object.assign({}, editTour);
-        Object.assign(editTour, fields);
+        var live = getTour(editTour.id);
+        if (!live) {
+          live = editTour;
+          state.tours.push(live);
+        }
+        var backup = Object.assign({}, live);
+        Object.assign(live, fields);
         if (!saveTours(state.tours)) {
-          Object.assign(editTour, backup);
+          Object.assign(live, backup);
           errorEl.textContent = fullMsg;
           return;
         }
-        var kept = tourRefs(editTour);
+        var kept = tourRefs(live);
         deleteImages(tourRefs(backup).filter(function (r) { return kept.indexOf(r) < 0; }));
-        navigate("#/tour/" + editTour.id);
+        navigate("#/tour/" + live.id);
       } else {
         var tour = Object.assign({
           id: uid(),
           region: "Vorarlberg",
+          createdAt: Date.now(),
           mapPos: { x: 15 + Math.random() * 70, y: 15 + Math.random() * 70 }
         }, fields);
         state.tours.unshift(tour);
@@ -967,6 +1277,7 @@
     if (started) return;
     started = true;
     render();
+    syncNow();
   }
   initImages().then(start);
   setTimeout(start, 1500);

@@ -590,3 +590,28 @@ img { display: block; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.5); }
 .dot.active { background: #FFFFFF; }
 .detail-back { z-index: 2; }
+
+/* ---------- sync ---------- */
+
+.header { position: relative; }
+.sync-link {
+  position: absolute;
+  top: 18px; right: 12px;
+  width: 44px; height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sync-link.on::after {
+  content: "";
+  position: absolute;
+  top: 10px; right: 8px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--green-light);
+  border: 2px solid var(--bg);
+}
+.sync-info { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.sync-status { font-size: 13px; color: var(--muted); min-height: 18px; }
+.sync-status.ok { color: var(--green); }
+.sync-status.err { color: var(--orange-dark); }
